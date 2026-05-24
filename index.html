@@ -1,0 +1,622 @@
+<!doctype html>
+<html lang="ja">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Rail Centrality Viewer</title>
+    <link
+      href="https://unpkg.com/maplibre-gl@latest/dist/maplibre-gl.css"
+      rel="stylesheet"
+    />
+    <style>
+      :root {
+        --bg: #f4f6f8;
+        --panel-bg: rgba(255, 255, 255, 0.92);
+        --edge: #ea4335;
+        --node: #1a73e8;
+        --text: #1f2937;
+        --muted: #6b7280;
+      }
+
+      html,
+      body {
+        margin: 0;
+        width: 100%;
+        height: 100%;
+        background: radial-gradient(circle at 10% 10%, #ffffff, var(--bg));
+        font-family: "Noto Sans JP", "Hiragino Kaku Gothic ProN", sans-serif;
+        color: var(--text);
+      }
+
+      #map {
+        position: absolute;
+        inset: 0;
+      }
+
+      .panel {
+        position: absolute;
+        top: 12px;
+        left: 12px;
+        z-index: 2;
+        background: var(--panel-bg);
+        border-radius: 10px;
+        padding: 10px 12px;
+        box-shadow: 0 8px 24px rgba(0, 0, 0, 0.15);
+        max-width: min(86vw, 360px);
+        backdrop-filter: blur(6px);
+      }
+
+      .panel h1 {
+        margin: 0;
+        font-size: 15px;
+        font-weight: 700;
+        letter-spacing: 0.02em;
+      }
+
+      .panel p {
+        margin: 6px 0 0;
+        font-size: 12px;
+        color: var(--muted);
+        line-height: 1.5;
+      }
+
+      .control {
+        display: grid;
+        gap: 6px;
+      }
+
+      .control label {
+        font-size: 12px;
+        font-weight: 600;
+        color: var(--text);
+      }
+
+      .control select {
+        width: 100%;
+        font-size: 13px;
+        border: 1px solid #d1d5db;
+        border-radius: 8px;
+        padding: 7px 9px;
+        background: #ffffff;
+        color: var(--text);
+      }
+
+      .legend {
+        margin-top: 8px;
+        display: grid;
+        gap: 6px;
+        font-size: 12px;
+      }
+
+      .legend-row {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+      }
+
+      .swatch-line {
+        width: 20px;
+        height: 0;
+        border-top: 3px solid var(--edge);
+        border-radius: 3px;
+      }
+
+      .swatch-node {
+        width: 10px;
+        height: 10px;
+        border-radius: 50%;
+        background: var(--node);
+      }
+
+      .error {
+        color: #b91c1c;
+        font-weight: 600;
+      }
+    </style>
+  </head>
+  <body>
+    <div id="map"></div>
+
+    <aside class="panel" id="panel">
+      <div class="control">
+        <label for="centrality-select">中心性-TOP20</label>
+        <select id="centrality-select" aria-label="centrality">
+          <option value="ALL" selected>ALL</option>
+          <option value="degree_centrality">次元中心性</option>
+          <option value="betweenness_centrality">媒介中心性</option>
+          <option value="closeness_centrality">近接中心性</option>
+          <option value="eigenvector_centrality">固有ベクトル中心性</option>
+          <option value="pagerank">ページランク</option>
+        </select>
+      </div>
+    </aside>
+
+    <script src="https://unpkg.com/maplibre-gl@latest/dist/maplibre-gl.js"></script>
+    <script src="https://unpkg.com/pmtiles@latest/dist/pmtiles.js"></script>
+    <script>
+      const protocol = new pmtiles.Protocol();
+      maplibregl.addProtocol("pmtiles", protocol.tile);
+
+      const map = new maplibregl.Map({
+        container: "map",
+        center: [139.767, 35.681],
+        zoom: 10,
+        minZoom: 4,
+        maxZoom: 18,
+        hash: "map",
+        style: {
+          version: 8,
+          glyphs: "https://demotiles.maplibre.org/font/{fontstack}/{range}.pbf",
+          sources: {
+            osm: {
+              type: "raster",
+              tiles: ["https://tile.openstreetmap.org/{z}/{x}/{y}.png"],
+              tileSize: 256,
+              attribution:
+                '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors',
+            },
+            rail_edge_source: {
+              type: "vector",
+              url: "pmtiles://rail_edge.pmtiles",
+              attribution:
+                '&copy; <a href="https://nlftp.mlit.go.jp/ksj/gml/datalist/KsjTmplt-N02-2025.html">国土数値情報-鉄道データR7</a>',
+            },
+            rail_node_source: {
+              type: "vector",
+              url: "pmtiles://rail_node.pmtiles",
+              attribution:
+                '&copy; <a href="https://nlftp.mlit.go.jp/ksj/gml/datalist/KsjTmplt-N02-2025.html">国土数値情報-鉄道データR7</a>',
+            },
+          },
+          layers: [
+            {
+              id: "osm",
+              type: "raster",
+              source: "osm",
+              paint: {
+                "raster-opacity": 0.3,
+              },
+            },
+            {
+              id: "rail_edge_other",
+              type: "line",
+              source: "rail_edge_source",
+              "source-layer": "rail_edge",
+              minzoom: 4,
+              filter: [
+                "all",
+                [
+                  "!",
+                  [
+                    "in",
+                    ["get", "operator"],
+                    [
+                      "literal",
+                      [
+                        "北海道旅客鉄道",
+                        "東日本旅客鉄道",
+                        "東海旅客鉄道",
+                        "西日本旅客鉄道",
+                        "四国旅客鉄道",
+                        "九州旅客鉄道",
+                      ],
+                    ],
+                  ],
+                ],
+              ],
+              paint: {
+                "line-color": "rgba(136,136,136,1)",
+                "line-width": 2,
+              },
+            },
+            {
+              id: "rail_edge_jr_base",
+              type: "line",
+              source: "rail_edge_source",
+              "source-layer": "rail_edge",
+              minzoom: 4,
+              filter: [
+                "in",
+                ["get", "operator"],
+                [
+                  "literal",
+                  [
+                    "北海道旅客鉄道",
+                    "東日本旅客鉄道",
+                    "東海旅客鉄道",
+                    "西日本旅客鉄道",
+                    "四国旅客鉄道",
+                    "九州旅客鉄道",
+                  ],
+                ],
+              ],
+              paint: {
+                "line-color": "rgba(0, 0, 0, 1)",
+                "line-width": 4,
+              },
+            },
+            {
+              id: "rail_edge_jr_dash",
+              type: "line",
+              source: "rail_edge_source",
+              "source-layer": "rail_edge",
+              minzoom: 4,
+              filter: [
+                "in",
+                ["get", "operator"],
+                [
+                  "literal",
+                  [
+                    "北海道旅客鉄道",
+                    "東日本旅客鉄道",
+                    "東海旅客鉄道",
+                    "西日本旅客鉄道",
+                    "四国旅客鉄道",
+                    "九州旅客鉄道",
+                  ],
+                ],
+              ],
+              paint: {
+                "line-color": "rgba(255, 255, 255, 1)",
+                "line-width": 2,
+                "line-dasharray": [4, 4],
+              },
+            },
+            {
+              id: "rail_edge_label",
+              type: "symbol",
+              source: "rail_edge_source",
+              "source-layer": "rail_edge",
+              minzoom: 10,
+              layout: {
+                "text-field": ["get", "line_name"],
+                "text-font": ["Open Sans Regular", "Arial Unicode MS Regular"],
+                "text-size": 10,
+                "symbol-placement": "line",
+                "text-rotation-alignment": "map",
+                "text-pitch-alignment": "viewport",
+                "text-max-angle": 45,
+                "symbol-spacing": 300,
+                "text-optional": true,
+                "text-allow-overlap": false,
+                "text-ignore-placement": false,
+              },
+              paint: {
+                "text-color": "#555555",
+                "text-halo-color": "#ffffff",
+                "text-halo-width": 2,
+              },
+            },
+            {
+              id: "rail_node",
+              type: "circle",
+              source: "rail_node_source",
+              "source-layer": "rail_node",
+              minzoom: 4,
+              paint: {
+                "circle-color": "#1a73e8",
+                "circle-radius": [
+                  "interpolate",
+                  ["linear"],
+                  ["zoom"],
+                  4,
+                  1.2,
+                  10,
+                  2.5,
+                  14,
+                  5,
+                ],
+                "circle-stroke-color": "#ffffff",
+                "circle-stroke-width": 1,
+                "circle-opacity": 0.95,
+              },
+            },
+            {
+              id: "rail_node_station_label",
+              type: "symbol",
+              source: "rail_node_source",
+              "source-layer": "rail_node",
+              minzoom: 10,
+              filter: [
+                "all",
+                ["!=", ["get", "station_name"], null],
+                ["!=", ["get", "station_name"], ""],
+              ],
+              layout: {
+                "text-field": ["get", "station_name"],
+                "text-font": ["Open Sans Regular", "Arial Unicode MS Regular"],
+                "text-size": [
+                  "interpolate",
+                  ["linear"],
+                  ["zoom"],
+                  14,
+                  10,
+                  18,
+                  14,
+                ],
+                "text-max-width": 12,
+                "text-anchor": "center",
+                "text-offset": [0, 1.0],
+              },
+              paint: {
+                "text-color": "#111827",
+                "text-halo-color": "rgba(255, 255, 255, 0.95)",
+                "text-halo-width": 1.4,
+                "text-opacity": 0.95,
+              },
+            },
+          ],
+        },
+      });
+
+      map.addControl(new maplibregl.NavigationControl(), "top-right");
+      map.addControl(
+        new maplibregl.ScaleControl({ unit: "metric" }),
+        "bottom-right",
+      );
+
+      function escapeHtml(value) {
+        return String(value)
+          .replaceAll("&", "&amp;")
+          .replaceAll("<", "&lt;")
+          .replaceAll(">", "&gt;")
+          .replaceAll('"', "&quot;")
+          .replaceAll("'", "&#39;");
+      }
+
+      function popupHtml(layerId, properties = {}) {
+        const excludedPopupProperties = new Set([
+          "degree_centrality",
+          "betweenness_centrality",
+          "closeness_centrality",
+          "eigenvector_centrality",
+          "pagerank",
+        ]);
+        const rankSuffixProperties = new Set([
+          "degree_centrality_rank",
+          "betweenness_centrality_rank",
+          "closeness_centrality_rank",
+          "eigenvector_centrality_rank",
+          "pagerank_rank",
+        ]);
+
+        const rows = Object.entries(properties)
+          .filter(([key]) => !excludedPopupProperties.has(key))
+          .map(([key, value]) => {
+            const baseRendered =
+              typeof value === "object" ? JSON.stringify(value) : String(value);
+            const rendered =
+              rankSuffixProperties.has(key) && value != null
+                ? `${baseRendered}位`
+                : baseRendered;
+            return `<tr><th style="text-align:left;padding:2px 8px 2px 0;vertical-align:top;">${escapeHtml(key)}</th><td style="padding:2px 0;">${escapeHtml(rendered)}</td></tr>`;
+          })
+          .join("");
+
+        const table = rows
+          ? `<table style="border-collapse:collapse;font-size:12px;line-height:1.4;">${rows}</table>`
+          : '<p style="margin:4px 0 0;font-size:12px;">属性がありません</p>';
+
+        return `<div><strong>${escapeHtml(layerId)}</strong>${table}</div>`;
+      }
+
+      function bindFeaturePopup(layerId) {
+        map.on("click", layerId, (e) => {
+          const feature = e.features && e.features[0];
+          if (!feature) {
+            return;
+          }
+
+          new maplibregl.Popup({ maxWidth: "460px" })
+            .setLngLat(e.lngLat)
+            .setHTML(popupHtml(layerId, feature.properties))
+            .addTo(map);
+        });
+
+        map.on("mouseenter", layerId, () => {
+          map.getCanvas().style.cursor = "pointer";
+        });
+
+        map.on("mouseleave", layerId, () => {
+          map.getCanvas().style.cursor = "";
+        });
+      }
+
+      const centralityConfig = {
+        degree_centrality: {
+          rankProperty: "degree_centrality_rank",
+        },
+        betweenness_centrality: {
+          rankProperty: "betweenness_centrality_rank",
+        },
+        closeness_centrality: {
+          rankProperty: "closeness_centrality_rank",
+        },
+        eigenvector_centrality: {
+          rankProperty: "eigenvector_centrality_rank",
+        },
+        pagerank: {
+          rankProperty: "pagerank_rank",
+        },
+      };
+
+      const validMetricKeys = new Set([
+        "ALL",
+        ...Object.keys(centralityConfig),
+      ]);
+
+      function normalizeMetricKey(metricKey) {
+        return validMetricKeys.has(metricKey) ? metricKey : "ALL";
+      }
+
+      function getHashParams() {
+        return new URLSearchParams(window.location.hash.replace(/^#/, ""));
+      }
+
+      function getMetricFromHash() {
+        return normalizeMetricKey(getHashParams().get("metric") || "ALL");
+      }
+
+      function setMetricToHash(metricKey) {
+        const params = getHashParams();
+        const normalized = normalizeMetricKey(metricKey);
+
+        if (normalized === "ALL") {
+          params.delete("metric");
+        } else {
+          params.set("metric", normalized);
+        }
+
+        const nextHash = params.toString();
+        const currentHash = window.location.hash.replace(/^#/, "");
+        if (nextHash !== currentHash) {
+          window.location.hash = nextHash ? `#${nextHash}` : "";
+        }
+      }
+
+      function buildHighlightedNodeExpression(metricKey) {
+        const cfg = centralityConfig[metricKey];
+        return [
+          "all",
+          // ["!=", ["get", "station_name"], null],
+          ["<=", ["to-number", ["get", cfg.rankProperty], 999999], 20],
+        ];
+      }
+
+      function applyCentralityStyle(metricKey) {
+        if (metricKey === "ALL") {
+          map.setFilter("rail_node", null);
+          map.setPaintProperty("rail_node", "circle-color", "#1a73e8");
+          map.setPaintProperty("rail_node", "circle-radius", [
+            "interpolate",
+            ["linear"],
+            ["zoom"],
+            4,
+            1.2,
+            10,
+            2.5,
+            14,
+            5,
+          ]);
+          map.setPaintProperty("rail_node", "circle-stroke-color", "#ffffff");
+          map.setPaintProperty("rail_node", "circle-stroke-width", 1);
+          map.setPaintProperty("rail_node", "circle-opacity", 0.95);
+
+          map.setPaintProperty("rail_edge_other", "line-opacity", 1);
+          map.setPaintProperty("rail_edge_jr_base", "line-opacity", 1);
+          map.setPaintProperty("rail_edge_jr_dash", "line-opacity", 1);
+          map.setFilter("rail_node_station_label", [
+            "all",
+            ["!=", ["get", "station_name"], null],
+            ["!=", ["get", "station_name"], ""],
+          ]);
+          map.setLayoutProperty(
+            "rail_node_station_label",
+            "text-offset",
+            [0, 1.0],
+          );
+          map.setLayoutProperty("rail_node_station_label", "text-size", [
+            "interpolate",
+            ["linear"],
+            ["zoom"],
+            14,
+            10,
+            18,
+            14,
+          ]);
+          return;
+        }
+
+        const highlightedExpr = buildHighlightedNodeExpression(metricKey);
+        map.setFilter("rail_node", highlightedExpr);
+
+        map.setPaintProperty("rail_node", "circle-color", [
+          "case",
+          highlightedExpr,
+          "#ff5a36",
+          "#6b7280",
+        ]);
+
+        map.setPaintProperty("rail_node", "circle-radius", [
+          "interpolate",
+          ["linear"],
+          ["zoom"],
+          4,
+          ["case", highlightedExpr, 2.4, 0.62],
+          10,
+          ["case", highlightedExpr, 5.6, 1.46],
+          14,
+          ["case", highlightedExpr, 8.5, 2.21],
+        ]);
+
+        map.setPaintProperty("rail_node", "circle-stroke-color", "#ffffff");
+        map.setPaintProperty("rail_node", "circle-stroke-width", [
+          "case",
+          highlightedExpr,
+          1.2,
+          0,
+        ]);
+        map.setPaintProperty("rail_node", "circle-opacity", [
+          "case",
+          highlightedExpr,
+          0.95,
+          0.2,
+        ]);
+
+        map.setPaintProperty("rail_edge_other", "line-opacity", 0.35);
+        map.setPaintProperty("rail_edge_jr_base", "line-opacity", 0.28);
+        map.setPaintProperty("rail_edge_jr_dash", "line-opacity", 0.45);
+        map.setFilter("rail_node_station_label", highlightedExpr);
+        map.setLayoutProperty(
+          "rail_node_station_label",
+          "text-offset",
+          [0, 1.2],
+        );
+        map.setLayoutProperty("rail_node_station_label", "text-size", [
+          "interpolate",
+          ["linear"],
+          ["zoom"],
+          14,
+          11,
+          18,
+          15,
+        ]);
+      }
+
+      map.on("load", () => {
+        const metricSelect = document.getElementById("centrality-select");
+
+        // bindFeaturePopup("rail_edge_other");
+        // bindFeaturePopup("rail_edge_jr_base");
+        // bindFeaturePopup("rail_edge_jr_dash");
+        bindFeaturePopup("rail_node");
+
+        const initialMetric = getMetricFromHash();
+        metricSelect.value = initialMetric;
+        applyCentralityStyle(initialMetric);
+
+        metricSelect.addEventListener("change", (e) => {
+          const metricKey = normalizeMetricKey(e.target.value);
+          applyCentralityStyle(metricKey);
+          setMetricToHash(metricKey);
+        });
+
+        window.addEventListener("hashchange", () => {
+          const metricKey = getMetricFromHash();
+          if (metricSelect.value !== metricKey) {
+            metricSelect.value = metricKey;
+            applyCentralityStyle(metricKey);
+          }
+        });
+      });
+
+      map.on("error", (e) => {
+        const panel = document.getElementById("panel");
+        const err = document.createElement("p");
+        err.className = "error";
+        err.textContent = `読み込みエラー: ${e?.error?.message || "不明なエラー"}`;
+        panel.appendChild(err);
+      });
+    </script>
+  </body>
+</html>
