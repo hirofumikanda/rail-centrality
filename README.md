@@ -1,6 +1,9 @@
 # 鉄道ノード中心性ビューワ
 
-MapLibre GL JS と PMTiles を使って、[国土数値情報の鉄道ノード](https://nlftp.mlit.go.jp/ksj/gml/datalist/KsjTmplt-N02-2025.html)の中心性を可視化する Web ビューアです。
+[国土数値情報の鉄道データ](https://nlftp.mlit.go.jp/ksj/gml/datalist/KsjTmplt-N02-2025.html)を使って、日本の鉄道ノードの中心性を可視化する Web ビューアです。
+
+鉄道区間の接続点と駅区間の端点をマージしてノード化してNetworkXを使って解析しています。
+
 複数の中心性指標（次元中心性・媒介中心性・近接中心性・固有ベクトル中心性・ページランク）を切り替え、上位ノードを地図上で確認できます。
 
 ## ファイル構成
