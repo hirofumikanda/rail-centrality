@@ -119,14 +119,14 @@
 
     <aside class="panel" id="panel">
       <div class="control">
-        <label for="centrality-select">中心性-TOP20</label>
+        <label for="centrality-select">地域内中心性-TOP3</label>
         <select id="centrality-select" aria-label="centrality">
           <option value="ALL" selected>ALL</option>
-          <option value="degree_centrality">次元中心性</option>
-          <option value="betweenness_centrality">媒介中心性</option>
-          <option value="closeness_centrality">近接中心性</option>
-          <option value="eigenvector_centrality">固有ベクトル中心性</option>
-          <option value="pagerank">ページランク</option>
+          <option value="degree_centrality_in_community">次元中心性</option>
+          <option value="betweenness_centrality_in_community">媒介中心性</option>
+          <option value="closeness_centrality_in_community">近接中心性</option>
+          <option value="eigenvector_centrality_in_community">固有ベクトル中心性</option>
+          <option value="pagerank_in_community">ページランク</option>
         </select>
       </div>
     </aside>
@@ -316,7 +316,7 @@
               type: "symbol",
               source: "rail_node_source",
               "source-layer": "rail_node",
-              minzoom: 10,
+              minzoom: 8,
               filter: [
                 "all",
                 ["!=", ["get", "station_name"], null],
@@ -365,19 +365,35 @@
       }
 
       function popupHtml(layerId, properties = {}) {
+        const popupPropertyLabels = {
+          station_name: "駅名",
+          station_line_names: "路線名",
+          station_operator_names: "鉄道会社",
+          community_id: "地域ID",
+          community_size: "地域内駅数",
+          degree_centrality_in_community_rank: "次元中心性",
+          betweenness_centrality_in_community_rank: "媒介中心性",
+          closeness_centrality_in_community_rank: "近接中心性",
+          eigenvector_centrality_in_community_rank: "固有ベクトル中心性",
+          pagerank_in_community_rank: "ページランク",
+        };
         const excludedPopupProperties = new Set([
-          "degree_centrality",
-          "betweenness_centrality",
-          "closeness_centrality",
-          "eigenvector_centrality",
-          "pagerank",
+          "station_cluster",
+          "node_id",
+          "station_codes",
+          "station_member_count",
+          "degree_centrality_in_community",
+          "betweenness_centrality_in_community",
+          "closeness_centrality_in_community",
+          "eigenvector_centrality_in_community",
+          "pagerank_in_community",
         ]);
         const rankSuffixProperties = new Set([
-          "degree_centrality_rank",
-          "betweenness_centrality_rank",
-          "closeness_centrality_rank",
-          "eigenvector_centrality_rank",
-          "pagerank_rank",
+          "degree_centrality_in_community_rank",
+          "betweenness_centrality_in_community_rank",
+          "closeness_centrality_in_community_rank",
+          "eigenvector_centrality_in_community_rank",
+          "pagerank_in_community_rank",
         ]);
 
         const rows = Object.entries(properties)
@@ -389,7 +405,8 @@
               rankSuffixProperties.has(key) && value != null
                 ? `${baseRendered}位`
                 : baseRendered;
-            return `<tr><th style="text-align:left;padding:2px 8px 2px 0;vertical-align:top;">${escapeHtml(key)}</th><td style="padding:2px 0;">${escapeHtml(rendered)}</td></tr>`;
+            const label = popupPropertyLabels[key] || key;
+            return `<tr><th style="text-align:left;padding:2px 8px 2px 0;vertical-align:top;">${escapeHtml(label)}</th><td style="padding:2px 0;">${escapeHtml(rendered)}</td></tr>`;
           })
           .join("");
 
@@ -423,20 +440,20 @@
       }
 
       const centralityConfig = {
-        degree_centrality: {
-          rankProperty: "degree_centrality_rank",
+        degree_centrality_in_community: {
+          rankProperty: "degree_centrality_in_community_rank",
         },
-        betweenness_centrality: {
-          rankProperty: "betweenness_centrality_rank",
+        betweenness_centrality_in_community: {
+          rankProperty: "betweenness_centrality_in_community_rank",
         },
-        closeness_centrality: {
-          rankProperty: "closeness_centrality_rank",
+        closeness_centrality_in_community: {
+          rankProperty: "closeness_centrality_in_community_rank",
         },
-        eigenvector_centrality: {
-          rankProperty: "eigenvector_centrality_rank",
+        eigenvector_centrality_in_community: {
+          rankProperty: "eigenvector_centrality_in_community_rank",
         },
-        pagerank: {
-          rankProperty: "pagerank_rank",
+        pagerank_in_community: {
+          rankProperty: "pagerank_in_community_rank",
         },
       };
 
@@ -479,7 +496,8 @@
         return [
           "all",
           // ["!=", ["get", "station_name"], null],
-          ["<=", ["to-number", ["get", cfg.rankProperty], 999999], 20],
+          ["<=", ["to-number", ["get", cfg.rankProperty], 999999], 3],
+          [">=", ["get", "community_size"], 100],
         ];
       }
 
